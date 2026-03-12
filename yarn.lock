@@ -5,9 +5,9 @@ __metadata:
   version: 8
   cacheKey: 10c0
 
-"trip-planner-shared@workspace:.":
+"@philgame/trip-planner-shared@workspace:.":
   version: 0.0.0-use.local
-  resolution: "trip-planner-shared@workspace:."
+  resolution: "@philgame/trip-planner-shared@workspace:."
   dependencies:
     typescript: "npm:^5.0.0"
     zod: "npm:^4.3.6"
