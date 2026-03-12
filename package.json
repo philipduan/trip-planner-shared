@@ -1,5 +1,5 @@
 {
-  "name": "@philipdu/trip-planner-shared",
+  "name": "@philgame/trip-planner-shared",
   "version": "0.1.0",
   "description": "Shared types, schemas, constants, and utilities for trip-planner-client and trip-planner-mobile",
   "main": "src/index.ts",
