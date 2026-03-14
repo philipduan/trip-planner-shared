@@ -1,6 +1,6 @@
 {
   "name": "@philgame/trip-planner-shared",
-  "version": "0.1.8",
+  "version": "0.1.10",
   "description": "Shared types, schemas, constants, and utilities for trip-planner-client and trip-planner-mobile",
   "main": "src/index.ts",
   "types": "src/index.ts",
