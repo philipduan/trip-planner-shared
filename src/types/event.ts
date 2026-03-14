@@ -26,6 +26,7 @@ export type EventType =
 
 /**
  * Transport methods for transit between events
+ * Mirrors server TransportMethod enum in transits.entity.ts
  */
 export type TransportMethod =
   | 'WALK'
@@ -34,17 +35,25 @@ export type TransportMethod =
   | 'TAXI'
   | 'DRIVE'
   | 'PLANE'
-  | 'BOAT';
+  | 'BOAT'
+  | 'OTHER';
 
 /**
  * Transit information between consecutive events
+ * Mirrors server TransitResponseDto
  */
 export interface Transit {
   id: TransitId;
   eventId: EventId; // The event this transit leads TO
-  method: TransportMethod;
-  duration: number; // Duration in minutes
-  notes?: string;
+  transportMethod: TransportMethod;
+  departureLocation?: string | null;
+  arrivalLocation?: string | null;
+  departureTime?: IsoDateTime | null;
+  arrivalTime?: IsoDateTime | null;
+  bookingReference?: string | null;
+  notes?: string | null;
+  estimatedDurationMinutes?: number | null;
+  version: number;
   createdAt: IsoDateTime;
   updatedAt: IsoDateTime;
 }
@@ -74,6 +83,7 @@ export interface Event {
   version: number; // Entity version for optimistic locking
   googleMapsUrl?: string | null; // Google Maps link for the event location
   webUrl?: string | null; // Website link for the event
+  dayNumber?: number | null; // For dateless trips: 1-based day grouping (Day 1, Day 2...)
   mediaCount?: number; // Number of media files attached to this event
   commentCount?: number; // Number of comments on this event
   hasTransit?: boolean; // Whether this event has transit information
@@ -101,6 +111,7 @@ export interface CreateEventInput {
   notes?: string; // Additional notes/instructions for the event
   locationPending?: boolean; // True if location is a temporary placeholder (e.g., "TBD")
   displayOrder?: number; // Display order within the day (auto-assigned by backend if not provided)
+  dayNumber?: number; // For dateless trips: 1-based day grouping
   googleMapsUrl?: string | null; // Google Maps link for the event location
   webUrl?: string | null; // Website link for the event
 }
@@ -120,27 +131,39 @@ export interface UpdateEventInput {
   location?: string; // Can be updated to change placeholder
   notes?: string; // Additional notes/instructions
   locationPending?: boolean; // Can toggle placeholder status
+  dayNumber?: number; // For dateless trips: 1-based day grouping
   googleMapsUrl?: string | null; // Google Maps link for the event location
   webUrl?: string | null; // Website link for the event
 }
 
 /**
  * Input for creating transit information
+ * Mirrors server CreateTransitDto (eventId is a path param, not in body)
  */
 export interface CreateTransitInput {
-  eventId: string; // Plain string for form input (will be validated to EventId)
-  method: TransportMethod;
-  duration: number; // Duration in minutes
+  transportMethod: TransportMethod;
+  departureLocation?: string;
+  arrivalLocation?: string;
+  departureTime?: string; // ISO datetime string
+  arrivalTime?: string; // ISO datetime string
+  bookingReference?: string;
   notes?: string;
+  estimatedDurationMinutes?: number;
 }
 
 /**
  * Input for updating transit information
+ * All fields optional (partial update)
  */
 export interface UpdateTransitInput {
-  method?: TransportMethod;
-  duration?: number; // Duration in minutes
+  transportMethod?: TransportMethod;
+  departureLocation?: string;
+  arrivalLocation?: string;
+  departureTime?: string; // ISO datetime string
+  arrivalTime?: string; // ISO datetime string
+  bookingReference?: string;
   notes?: string;
+  estimatedDurationMinutes?: number;
 }
 
 /**
@@ -157,6 +180,7 @@ export const eventTypeSchema = z.enum([
 
 /**
  * Zod schema for TransportMethod enum
+ * Mirrors server TransportMethod enum
  */
 export const transportMethodSchema = z.enum([
   'WALK',
@@ -166,6 +190,7 @@ export const transportMethodSchema = z.enum([
   'DRIVE',
   'PLANE',
   'BOAT',
+  'OTHER',
 ]);
 
 /**
@@ -201,6 +226,7 @@ export const createEventSchema = z
       .max(500, 'Location must be 500 characters or less')
       .trim(),
     locationPending: z.boolean().optional(),
+    dayNumber: z.number().int().positive().optional(),
     notes: z
       .string()
       .max(1000, 'Notes must be 1000 characters or less')
@@ -269,6 +295,7 @@ export const updateEventSchema = z
       .trim()
       .optional(),
     locationPending: z.boolean().optional(),
+    dayNumber: z.number().int().positive().optional(),
     notes: z
       .string()
       .max(1000, 'Notes must be 1000 characters or less')
@@ -311,40 +338,95 @@ export const updateEventSchema = z
 
 /**
  * Zod schema for creating transit information
+ * eventId is a path param, not validated here
  */
 export const createTransitSchema = z.object({
-  eventId: EventIdSchema,
-  method: transportMethodSchema,
-  duration: z
-    .number()
-    .int('Duration must be a whole number')
-    .positive('Duration must be a positive number')
-    .max(1440, 'Duration cannot exceed 24 hours (1440 minutes)'),
-  notes: z
+  transportMethod: transportMethodSchema,
+  departureLocation: z
     .string()
-    .max(500, 'Notes must be 500 characters or less')
+    .max(500, 'Departure location must be 500 characters or less')
     .trim()
     .optional()
     .or(z.literal('')),
+  arrivalLocation: z
+    .string()
+    .max(500, 'Arrival location must be 500 characters or less')
+    .trim()
+    .optional()
+    .or(z.literal('')),
+  departureTime: z
+    .string()
+    .datetime({ message: 'Departure time must be a valid ISO datetime' })
+    .optional()
+    .or(z.literal('')),
+  arrivalTime: z
+    .string()
+    .datetime({ message: 'Arrival time must be a valid ISO datetime' })
+    .optional()
+    .or(z.literal('')),
+  bookingReference: z
+    .string()
+    .max(255, 'Booking reference must be 255 characters or less')
+    .trim()
+    .optional()
+    .or(z.literal('')),
+  notes: z
+    .string()
+    .max(2000, 'Notes must be 2000 characters or less')
+    .trim()
+    .optional()
+    .or(z.literal('')),
+  estimatedDurationMinutes: z
+    .number()
+    .int('Duration must be a whole number')
+    .positive('Duration must be positive')
+    .optional(),
 });
 
 /**
  * Zod schema for updating transit information
  */
 export const updateTransitSchema = z.object({
-  method: transportMethodSchema.optional(),
-  duration: z
-    .number()
-    .int('Duration must be a whole number')
-    .positive('Duration must be a positive number')
-    .max(1440, 'Duration cannot exceed 24 hours (1440 minutes)')
-    .optional(),
-  notes: z
+  transportMethod: transportMethodSchema.optional(),
+  departureLocation: z
     .string()
-    .max(500, 'Notes must be 500 characters or less')
+    .max(500, 'Departure location must be 500 characters or less')
     .trim()
     .optional()
     .or(z.literal('')),
+  arrivalLocation: z
+    .string()
+    .max(500, 'Arrival location must be 500 characters or less')
+    .trim()
+    .optional()
+    .or(z.literal('')),
+  departureTime: z
+    .string()
+    .datetime({ message: 'Departure time must be a valid ISO datetime' })
+    .optional()
+    .or(z.literal('')),
+  arrivalTime: z
+    .string()
+    .datetime({ message: 'Arrival time must be a valid ISO datetime' })
+    .optional()
+    .or(z.literal('')),
+  bookingReference: z
+    .string()
+    .max(255, 'Booking reference must be 255 characters or less')
+    .trim()
+    .optional()
+    .or(z.literal('')),
+  notes: z
+    .string()
+    .max(2000, 'Notes must be 2000 characters or less')
+    .trim()
+    .optional()
+    .or(z.literal('')),
+  estimatedDurationMinutes: z
+    .number()
+    .int('Duration must be a whole number')
+    .positive('Duration must be positive')
+    .optional(),
 });
 
 /**
@@ -366,3 +448,4 @@ export type CreateTransitDto = z.infer<typeof createTransitSchema>;
  * Type for updating transit (inferred from schema)
  */
 export type UpdateTransitDto = z.infer<typeof updateTransitSchema>;
+
