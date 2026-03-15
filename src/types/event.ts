@@ -217,7 +217,7 @@ export const createEventSchema = z
       .trim()
       .optional()
       .or(z.literal('')),
-    date: IsoDateSchema,
+    date: IsoDateSchema.optional(),
     startTime: TimeStringSchema.optional().or(z.literal('')),
     endTime: TimeStringSchema.optional().or(z.literal('')),
     location: z
